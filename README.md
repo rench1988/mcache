@@ -1,2 +1,2 @@
 # mcache
-lru memory cache library
+lru memory cache library extract from nginx
