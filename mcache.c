@@ -2,10 +2,13 @@
 	most code extract from nginx
 */
 
+#include <stdio.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
+#include <sys/mman.h>
 
 #include "mcache.h"
 
@@ -109,11 +112,11 @@ static void              mcache_rbtree_insert_value(ngx_rbtree_node_t *temp,
                                                    ngx_rbtree_node_t *sentinel);
 static int               mcache_memn2cmp(u_char *s1, u_char *s2, size_t n1, size_t n2);
 static uint32_t          mcache_crc32_short(u_char *p, size_t len);
-static mcache_kv_node_t *mcache_kvs_lookup(mcache_index_t *index, ngx_uint_t hash,
-                                          u_char *data, size_t len);
-static void              mcache_lru_expire(mcache_kvs_t *kvs);
+static mcache_kv_node_t *mcache_kvs_lookup(mcache_index_t *index, u_char *data,
+                                           size_t len, unsigned int hash);
+static void              mcache_lru_expire(mcache_kv_t *kvs);
 
-static void mcache_lru_expire(mcache_kvs_t *kvs)
+static void mcache_lru_expire(mcache_kv_t *kvs)
 {
     ngx_queue_t                *q;
     ngx_rbtree_node_t          *node;
@@ -125,7 +128,7 @@ static void mcache_lru_expire(mcache_kvs_t *kvs)
         return;
     }
 
-    q = ngx_queue_last(&index->queue);
+    q = ngx_queue_last(&kvs->index->queue);
 
     kn = ngx_queue_data(q, mcache_kv_node_t, queue);
 
@@ -134,14 +137,14 @@ static void mcache_lru_expire(mcache_kvs_t *kvs)
     node = (ngx_rbtree_node_t *)
                 ((u_char *) kn - offsetof(ngx_rbtree_node_t, color));
 
-    ngx_rbtree_delete(&index->rbtree, node);
+    ngx_rbtree_delete(&kvs->index->rbtree, node);
 
     ngx_slab_free(shpool, node);
 }
 
 
 static mcache_kv_node_t*
-mcache_kvs_lookup(mcache_index_t *index, ngx_uint_t hash, u_char *data, size_t len)
+mcache_kvs_lookup(mcache_index_t *index, u_char *data, size_t len, unsigned int hash)
 {
     int rc;
 
@@ -198,7 +201,7 @@ static uint32_t mcache_crc32_short(u_char *p, size_t len)
 static int mcache_memn2cmp(u_char *s1, u_char *s2, size_t n1, size_t n2)
 {
     size_t     n;
-    ngx_int_t  m, z;
+    int        m, z;
 
     if (n1 <= n2) {
         n = n1;
@@ -451,8 +454,6 @@ static void ngx_slab_free(ngx_slab_pool_t *pool, void *p)
 
         ngx_slab_free_pages(pool, &pool->pages[n], size);
 
-        ngx_slab_junk(p, size << ngx_pagesize_shift);
-
         return;
     }
 
@@ -555,9 +556,9 @@ static void ngx_slab_init(ngx_slab_pool_t *pool)
 
     p += n * sizeof(ngx_slab_page_t);
 
-    pages = (ngx_uint_t) (size / (ngx_pagesize + sizeof(ngx_slab_page_t)));
+    pages = (unsigned int) (size / (ngx_pagesize + sizeof(ngx_slab_page_t)));
 
-    ngx_memzero(p, pages * sizeof(ngx_slab_page_t));
+    memset(p, 0x00, pages * sizeof(ngx_slab_page_t));
 
     pool->pages = (ngx_slab_page_t *) p;
 
@@ -817,7 +818,7 @@ done:
     return (void *) p;
 }
 
-char *mcache_estr(int ecode)
+const char *mcache_estr(int ecode)
 {
 	return estr[ecode];
 }
@@ -864,7 +865,7 @@ mcache_t *mcache_init(size_t size, char err_buf[], size_t err_len)
 
 failed:
     if (ecode) {
-        snprintf(err_buf, err_len, "%s", mcache_estr(ecode))
+        snprintf(err_buf, err_len, "%s", mcache_estr(ecode));
     }
 
     return NULL;
@@ -890,6 +891,8 @@ void *mcache_alloc(mcache_t *mc, size_t size)
 
 void *mcache_alloc_locked(mcache_t *mc, size_t size)
 {
+    void  *p;
+
 	ngx_slab_pool_t *sp = (ngx_slab_pool_t *)mc->addr;
 
 	pthread_mutex_lock(&sp->lock);
@@ -920,15 +923,15 @@ void mcache_free_locked(mcache_t *mc, void *p)
 	return;
 }
 
-mcache_kvs_s *mcache_kv_init(size_t size, char *err_buf, size_t err_len)
+mcache_kv_t *mcache_kv_init(size_t size, char *err_buf, size_t err_len)
 {
     int ecode = 0;
 
-    mcache_kvs_t *kvs;
+    mcache_kv_t *kvs;
 
     ngx_slab_pool_t *sp;
 
-    kvs = (mcache_kvs_t *)malloc(sizeof(mcache_kvs_t));
+    kvs = (mcache_kv_t *)malloc(sizeof(mcache_kv_t));
     if (kvs == NULL) {
         ecode = MC_NO_MEMORY;
         goto failed;        
@@ -961,7 +964,7 @@ failed:
     return NULL;
 }
 
-int mcache_kv_free(mcache_kvs_t *kvs)
+int mcache_kv_free(mcache_kv_t *kvs)
 {
     int res;
 
@@ -972,7 +975,7 @@ int mcache_kv_free(mcache_kvs_t *kvs)
     return res;
 }
 
-int mcache_kv_set(mcache_kvs_t *kvs, u_char *key, uint32_t value)
+int mcache_kv_set(mcache_kv_t *kvs, u_char *key, uint32_t value)
 {
     size_t   len, size;
     uint32_t hash;
@@ -982,7 +985,7 @@ int mcache_kv_set(mcache_kvs_t *kvs, u_char *key, uint32_t value)
     ngx_rbtree_node_t   *node;
     ngx_slab_pool_t     *sp = (ngx_slab_pool_t *)kvs->mc->addr;
 
-    len  = strlen(key);
+    len  = strlen((char *)key);
     hash = mcache_crc32_short(key, len);
 
     pthread_mutex_lock(&sp->lock);
@@ -1026,19 +1029,18 @@ int mcache_kv_delete(mcache_kv_t *kvs, u_char *key)
 {
     size_t   len;
     uint32_t hash;
-    uint32_t dummy;
 
     mcache_kv_node_t *kv_node;
 
     ngx_rbtree_node_t  *node;
     ngx_slab_pool_t    *sp = (ngx_slab_pool_t *)kvs->mc->addr;
 
-    len  = strlen(key);
+    len  = strlen((char *)key);
     hash = mcache_crc32_short(key, len);
 
     pthread_mutex_lock(&sp->lock);
 
-    kv_node = mcache_kvs_lookup(kvs->index, key, len, hash, &dummy);
+    kv_node = mcache_kvs_lookup(kvs->index, key, len, hash);
     if (kv_node == NULL) {
         return MC_KEY_NOEXISTS;
     }

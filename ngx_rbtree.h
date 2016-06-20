@@ -8,6 +8,8 @@
 #ifndef _NGX_RBTREE_H_INCLUDED_
 #define _NGX_RBTREE_H_INCLUDED_
 
+#include <sys/types.h>
+
 
 typedef unsigned int  ngx_rbtree_key_t;
 typedef int           ngx_rbtree_key_int_t;

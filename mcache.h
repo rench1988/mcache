@@ -4,6 +4,8 @@
 #include "ngx_queue.h"
 #include "ngx_rbtree.h"
 
+#include <stdint.h>
+
 enum ecode {
 	MC_SUCCESS,
 	MC_SIZE_LACK,
@@ -47,13 +49,13 @@ struct mcache_kv_s {
 };
 
 
-mcache_t *mcache_init(mcache_t *mc, size_t size, char *err_buf, size_t err_len);
-int       mcache_destroy(mcache_t *mc);
-void     *mcache_alloc(mcache_t *mc, size_t size);
-void     *mcache_alloc_locked(mcache_t *mc, size_t size);
-void      mcache_free(mcache_t *mc, void *p);
-void      mcache_free_locked(mcache_t *mc, void *p);
-char     *mcache_estr(int ecode);
+mcache_t   *mcache_init(size_t size, char *err_buf, size_t err_len);
+int         mcache_destroy(mcache_t *mc);
+void       *mcache_alloc(mcache_t *mc, size_t size);
+void       *mcache_alloc_locked(mcache_t *mc, size_t size);
+void        mcache_free(mcache_t *mc, void *p);
+void        mcache_free_locked(mcache_t *mc, void *p);
+const char *mcache_estr(int ecode);
 
 mcache_kv_t  *mcache_kv_init(size_t size, char *err_buf, size_t err_len);
 int           mcache_kv_free(mcache_kv_t *kvs);

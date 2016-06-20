@@ -6,7 +6,7 @@
 
 
 #include "ngx_rbtree.h"
-
+#include <stdlib.h>
 
 /*
  * The red-black tree code is based on the algorithm described in
@@ -157,7 +157,8 @@ void
 ngx_rbtree_delete(volatile ngx_rbtree_t *tree,
     ngx_rbtree_node_t *node)
 {
-    ngx_uint_t           red;
+    unsigned int         red;
+
     ngx_rbtree_node_t  **root, *sentinel, *subst, *temp, *w;
 
     /* a binary tree delete */
