@@ -17,15 +17,15 @@ enum ecode {
 	MC_KEY_NOEXISTS,
 };
 
-const char *estr[] = {
-	"success",
-	"initialized size is too small"
-	"system call \"mmap\" failed",
-	"system call \"unmap\" failed",
-	"memory insufficient",
-	"slab(memory) insufficient",
-	"key already exists",
-	"key doesnt exists"
+static const char *estr[] = {
+    "success",
+    "initialized size is too small",
+    "system call \"mmap\" failed",
+    "system call \"unmap\" failed",
+    "memory insufficient",
+    "slab(memory) insufficient",
+    "key already exists",
+    "key doesnt exists"
 };
 
 typedef struct mcache_s        mcache_t;
@@ -60,7 +60,9 @@ const char *mcache_estr(int ecode);
 mcache_kv_t  *mcache_kv_init(size_t size, char *err_buf, size_t err_len);
 int           mcache_kv_free(mcache_kv_t *kvs);
 int           mcache_kv_set(mcache_kv_t *kvs, u_char *key, uint32_t value);
-int           mcache_kv_delete(mcache_kv_t *kvs, u_char *key);       
+int           mcache_kv_get(mcache_kv_t *kvs, u_char *key, uint32_t *value);
+int           mcache_kv_delete(mcache_kv_t *kvs, u_char *key);
+int           mcache_kv_count(mcache_kv_t *kvs);       
 
 
 

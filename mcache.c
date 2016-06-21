@@ -115,6 +115,22 @@ static uint32_t          mcache_crc32_short(u_char *p, size_t len);
 static mcache_kv_node_t *mcache_kvs_lookup(mcache_index_t *index, u_char *data,
                                            size_t len, unsigned int hash);
 static void              mcache_lru_expire(mcache_kv_t *kvs);
+static int               mcache_tree_node_num(ngx_rbtree_node_t *root, ngx_rbtree_node_t *sentinel);
+
+static int mcache_tree_node_num(ngx_rbtree_node_t *root, ngx_rbtree_node_t *sentinel)
+{
+    if (root == sentinel) return 0;
+    
+    int sum = 1;
+
+    ngx_rbtree_node_t *left  = root->left;
+    ngx_rbtree_node_t *right = root->right;
+
+    if (left != sentinel) sum += mcache_tree_node_num(left, sentinel);
+    if (right != sentinel) sum += mcache_tree_node_num(right, sentinel);
+
+    return sum;
+}
 
 static void mcache_lru_expire(mcache_kv_t *kvs)
 {
@@ -843,6 +859,8 @@ mcache_t *mcache_init(size_t size, char err_buf[], size_t err_len)
         goto failed;
     }
 
+    mc->size = size;
+
 	mc->addr = (u_char *) mmap(NULL, mc->size,
                                 PROT_READ|PROT_WRITE,
                                 MAP_ANON|MAP_SHARED, -1, 0);
@@ -1025,6 +1043,35 @@ int mcache_kv_set(mcache_kv_t *kvs, u_char *key, uint32_t value)
     return 0;
 }
 
+int mcache_kv_get(mcache_kv_t *kvs, u_char *key, uint32_t *value)
+{
+    size_t   len;
+    uint32_t hash;
+
+    mcache_kv_node_t   *kv_node;
+
+    ngx_slab_pool_t    *sp = (ngx_slab_pool_t *)kvs->mc->addr;
+
+    len  = strlen((char *)key);
+    hash = mcache_crc32_short(key, len);
+
+    pthread_mutex_lock(&sp->lock);
+
+    kv_node = mcache_kvs_lookup(kvs->index, key, len, hash);
+    if (kv_node == NULL) {
+        return MC_KEY_NOEXISTS;
+    }
+
+    *value = kv_node->value;
+
+    ngx_queue_remove(&kv_node->queue);
+    ngx_queue_insert_head(&kvs->index->queue, &kv_node->queue);
+
+    pthread_mutex_unlock(&sp->lock);
+
+    return 0;
+}
+
 int mcache_kv_delete(mcache_kv_t *kvs, u_char *key)
 {
     size_t   len;
@@ -1055,5 +1102,10 @@ int mcache_kv_delete(mcache_kv_t *kvs, u_char *key)
     pthread_mutex_unlock(&sp->lock);
 
     return 0;
+}
+
+int mcache_kv_count(mcache_kv_t *kvs)
+{
+    return mcache_tree_node_num(kvs->index->rbtree.root, kvs->index->rbtree.sentinel);
 }
 

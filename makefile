@@ -16,6 +16,9 @@ ngx_queue.o:
 
 .PHONY: clean
 
+test:
+	gcc -o test test.c -I./ libmcache.a -lpthread
+
 clean:
 	rm -rf libmcache.a $(OBJ)
 
